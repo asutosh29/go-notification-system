@@ -19,7 +19,7 @@ type Config struct {
 	DbConfig
 }
 
-func InitConfig() *Config {
+func InitConfig() Config {
 	env.InitEnv() // Loads env before use
 
 	DbPort, err := strconv.Atoi(env.GetEnvString("DB_PORT", "5432"))
@@ -27,7 +27,7 @@ func InitConfig() *Config {
 		log.Fatal("Error parsing port: ", err)
 	}
 
-	return &Config{
+	return Config{
 		DbConfig: DbConfig{
 			DbName:     env.GetEnvString("DB_NAME", "notification"),
 			DbUser:     env.GetEnvString("DB_USER", "amx"),
