@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/asutosh29/go-gin/database"
 	"github.com/asutosh29/go-gin/internal/config"
+	"github.com/asutosh29/go-gin/internal/database"
 	"github.com/asutosh29/go-gin/internal/env"
 	"github.com/gin-gonic/gin"
 )
@@ -26,11 +26,22 @@ func main() {
 		config: config,
 	}
 
+	database.Migrate()
+
 	// Web server Setup
 	PORT := env.GetEnvString("SERVER_PORT", "8080")
 
 	router := gin.Default()
 	router.GET("/", app.getWelcomeMessage)
 	router.GET("/health", app.getHealthStatus)
+
+	notificationGroup := router.Group("/notification")
+	{
+		notificationGroup.GET("/", app.AllNotification)
+		notificationGroup.POST("/", app.AddNotification)
+		notificationGroup.GET("/:id", app.GetNotification)
+		notificationGroup.DELETE("/:id", app.DeleteNotification)
+	}
+
 	router.Run(fmt.Sprintf("localhost:%s", PORT))
 }

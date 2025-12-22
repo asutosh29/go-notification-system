@@ -2,6 +2,7 @@ package database
 
 import (
 	"fmt"
+	"log"
 
 	"github.com/asutosh29/go-gin/internal/config"
 	"gorm.io/driver/postgres"
@@ -14,4 +15,19 @@ func ConnectDb(config config.Config) (*gorm.DB, error) {
 	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
 
 	return db, err
+}
+
+func Migrate() {
+	// Migration functions
+	config := config.InitConfig()
+	db, err := ConnectDb(config)
+	if err != nil {
+		log.Fatal("Couldn't connect to database: ", err)
+	}
+
+	log.Println("Migrating tables...")
+	err = db.AutoMigrate(&Notification{})
+	if err != nil {
+		log.Fatal("Error migrating tables: ", err)
+	}
 }
