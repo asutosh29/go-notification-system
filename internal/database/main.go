@@ -3,11 +3,25 @@ package database
 import (
 	"fmt"
 	"log"
+	"sync"
 
 	"github.com/asutosh29/go-gin/internal/config"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 )
+
+var (
+	Db    *gorm.DB
+	DbMux sync.Mutex
+	DbErr error
+)
+
+func InitDatabase(config config.Config) {
+	Db, DbErr = ConnectDb(config)
+	if DbErr != nil {
+		log.Fatal("Error connecting to Database: ", DbErr)
+	}
+}
 
 func ConnectDb(config config.Config) (*gorm.DB, error) {
 	// DB Setup
@@ -18,16 +32,9 @@ func ConnectDb(config config.Config) (*gorm.DB, error) {
 }
 
 func Migrate() {
-	// Migration functions
-	config := config.InitConfig()
-	db, err := ConnectDb(config)
-	if err != nil {
-		log.Fatal("Couldn't connect to database: ", err)
-	}
-
 	log.Println("Migrating tables...")
-	err = db.AutoMigrate(&Notification{})
-	if err != nil {
-		log.Fatal("Error migrating tables: ", err)
+	DbErr = Db.AutoMigrate(&Notification{})
+	if DbErr != nil {
+		log.Fatal("Error migrating tables: ", DbErr)
 	}
 }

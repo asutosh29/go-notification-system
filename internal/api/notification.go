@@ -1,4 +1,4 @@
-package main
+package api
 
 import (
 	"net/http"
@@ -8,7 +8,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func (app *Application) AddNotification(c *gin.Context) {
+func AddNotification(c *gin.Context) {
 	var notification database.NotificationResp
 
 	if err := c.Bind(&notification); err != nil {
@@ -18,33 +18,30 @@ func (app *Application) AddNotification(c *gin.Context) {
 		return
 	}
 
-	tx := app.db.Create(&database.Notification{
-		NotificationResp: notification,
-	})
-	if tx.Error != nil {
+	_, err := database.AddNotification(notification)
+	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"message": "Couldn't add resource to database",
-			"error":   tx.Error.Error(),
+			"error":   err,
 		})
-		return
 	}
 
 	c.JSON(http.StatusCreated, notification)
 }
-func (app *Application) AllNotification(c *gin.Context) {
-	var notifications []database.Notification
-	tx := app.db.Find(&notifications)
-	if tx.Error != nil {
+func AllNotification(c *gin.Context) {
+	notifications, err := database.AllNotification()
+
+	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"message": "Couldn't fetch resource from database",
-			"error":   tx.Error.Error(),
+			"error":   err,
 		})
 		return
 	}
 
 	c.JSON(http.StatusOK, notifications)
 }
-func (app *Application) GetNotification(c *gin.Context) {
+func GetNotification(c *gin.Context) {
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
@@ -53,20 +50,18 @@ func (app *Application) GetNotification(c *gin.Context) {
 		return
 	}
 
-	var notification database.Notification
-
-	tx := app.db.First(&notification, id)
-	if tx.Error != nil {
+	notification, err := database.GetNotification(id)
+	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"message": "Couldn't fetch resource from database",
-			"error":   tx.Error.Error(),
+			"error":   err.Error(),
 		})
 		return
 	}
 
 	c.JSON(http.StatusOK, notification)
 }
-func (app *Application) DeleteNotification(c *gin.Context) {
+func DeleteNotification(c *gin.Context) {
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
@@ -75,11 +70,11 @@ func (app *Application) DeleteNotification(c *gin.Context) {
 		return
 	}
 
-	tx := app.db.Unscoped().Delete(&database.Notification{}, id)
-	if tx.Error != nil {
+	err = database.DeleteNotification(id)
+	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"message": "Couldn't delete resource from database",
-			"error":   tx.Error.Error(),
+			"error":   err,
 		})
 		return
 	}
