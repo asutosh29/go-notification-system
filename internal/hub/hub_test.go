@@ -91,10 +91,9 @@ func TestHub_Broadcast_Access(t *testing.T) {
 	//: "for _, client := range h.clients.Clients().data"
 	// doesn't panic.
 	t.Log("Sending broadcast...")
-	h.Broadcast(database.Notification{NotificationResp: database.NotificationResp{
+	h.BroadcastNotification(database.Notification{
 		Title:       "Test",
 		Description: "Hello",
-	},
 	})
 
 	time.Sleep(waitDuration)

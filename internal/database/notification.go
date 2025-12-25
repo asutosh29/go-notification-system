@@ -1,13 +1,15 @@
 package database
 
 import (
+	"fmt"
+
 	"gorm.io/gorm"
 )
 
 type Notification struct {
 	gorm.Model
-
-	NotificationResp
+	Title       string `gorm:"not null;unique" json:"title"`
+	Description string `gorm:"not null" json:"description"`
 }
 
 type NotificationResp struct {
@@ -15,10 +17,8 @@ type NotificationResp struct {
 	Description string `gorm:"not null" json:"description"`
 }
 
-func AddNotification(notification NotificationResp) (NotificationResp, error) {
-	tx := Db.Create(&Notification{
-		NotificationResp: notification,
-	})
+func AddNotification(notification Notification) (Notification, error) {
+	tx := Db.Create(&notification)
 
 	return notification, tx.Error
 }
@@ -38,7 +38,10 @@ func GetNotification(id int) (Notification, error) {
 }
 
 func DeleteNotification(id int) error {
-	tx := Db.Unscoped().Delete(&Notification{}, id)
-
+	tx := Db.First(&Notification{}, id)
+	if tx.Error != nil {
+		return fmt.Errorf("Error deleting notification: %v", tx.Error)
+	}
+	tx = Db.Unscoped().Delete(&Notification{}, id)
 	return tx.Error
 }
