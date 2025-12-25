@@ -18,6 +18,8 @@ func NewController(h *hub.Hub) *Controller {
 func InitRouter(h *hub.Hub) *gin.Engine {
 	router := gin.Default()
 	controller := NewController(h)
+	router.LoadHTMLGlob("templates/*")
+	router.GET("/test", controller.RenderIndex)
 	router.GET("/", getWelcomeMessage)
 	router.GET("/health", getHealthStatus)
 

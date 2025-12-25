@@ -1,7 +1,6 @@
 package api
 
 import (
-	"encoding/json"
 	"io"
 	"log"
 	"net/http"
@@ -120,14 +119,7 @@ func (r *Controller) Stream(c *gin.Context) {
 				return false // Channel closed
 			}
 			// Format: "event: <type>\ndata: <json>\n\n"
-			jsonNotif, err := json.Marshal(notif)
-			if err != nil {
-				log.Print("Error unmarshalling notification payload: ", err)
-				c.SSEvent("error", err)
-				return true
-			}
-
-			c.SSEvent("Notification", jsonNotif)
+			c.SSEvent("Notification", notif)
 			return true
 		case <-c.Request.Context().Done():
 			return false // Client disconnected

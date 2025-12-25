@@ -30,6 +30,23 @@ go run ./cmd/main.go
 
 # Usage
 
+## Web UI (Easy Testing)
+
+The server provides a web interface to easily test notifications without using curl commands.
+
+### Access the UI
+Open your browser and navigate to:
+```
+http://localhost:8080/test
+```
+
+The UI includes:
+- **Notification Form** - Create new notifications with title and description
+- **Notifications List** - View all notifications in real-time
+- **Live Stream Display** - See notifications as they are created
+- **Connection Status** - Visual indicator showing real-time connection status
+- **Activity Logs** - Detailed logs of all operations
+
 ## API Endpoints
 
 ### Health Check
@@ -40,19 +57,19 @@ go run ./cmd/main.go
 
 ### Notifications
 
-### Get All Notifications
+#### Get All Notifications
 - **GET** `/notification` - Retrieve all notifications
   ```bash
   curl http://localhost:8080/notification
   ```
 
-### Get Specific Notification
+#### Get Specific Notification
 - **GET** `/notification/:id` - Get a notification by ID
   ```bash
   curl http://localhost:8080/notification/{notification_id}
   ```
 
-### Create Notification
+#### Create Notification
 - **POST** `/notification` - Create a new notification
   ```bash
   curl -X POST http://localhost:8080/notification \
@@ -63,13 +80,13 @@ go run ./cmd/main.go
     }'
   ```
 
-### Delete Notification
+#### Delete Notification
 - **DELETE** `/notification/:id` - Delete a notification
   ```bash
   curl -X DELETE http://localhost:8080/notification/{notification_id}
   ```
 
-### Stream Notifications (Server-Sent Events)
+#### Stream Notifications (Server-Sent Events)
 - **GET** `/notification/stream` - Real-time notification stream
   ```bash
   curl http://localhost:8080/notification/stream
@@ -81,6 +98,15 @@ go run ./cmd/main.go
 
 ## Example Workflow
 
+### Using the Web UI (Recommended for Testing)
+1. Start the server (see Setup Instructions above)
+2. Open your browser to `http://localhost:8080/test`
+3. Fill in the notification form with a title and description
+4. Click "Send Notification"
+5. Watch the notification appear in the list and live stream display in real-time
+6. Open the UI in another browser tab to see real-time updates across multiple clients
+
+### Using curl Commands
 1. Start the server (see Setup Instructions above)
 
 2. Check server health:

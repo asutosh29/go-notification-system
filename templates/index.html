@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Notification Hub</title>
+    <style>
+        :root { --primary: #000; --bg: #f9fafb; --border: #e5e7eb; --red: #ef4444; }
+        body { margin: 0; font-family: system-ui, -apple-system, sans-serif; background-color: var(--bg); color: #111; }
+        * { box-sizing: border-box; }
+
+        /* Navbar */
+        .navbar { background: #fff; border-bottom: 1px solid var(--border); height: 60px; padding: 0 2rem; display: flex; align-items: center; justify-content: space-between; position: sticky; top: 0; z-index: 100; }
+        .brand { font-weight: 700; font-size: 1.25rem; }
+        
+        /* Notification Dropdown */
+        .notif-wrapper { position: relative; cursor: pointer; }
+        .bell { font-size: 1.5rem; user-select: none; }
+        .badge { position: absolute; top: -2px; right: -2px; width: 10px; height: 10px; background: var(--red); border-radius: 50%; border: 2px solid #fff; display: none; }
+        .badge.active { display: block; }
+        
+        .dropdown { position: absolute; top: 100%; right: 0; margin-top: 10px; width: 320px; background: #fff; border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); display: none; max-height: 400px; overflow-y: auto; }
+        .dropdown.show { display: block; }
+        .dropdown-header { padding: 0.75rem 1rem; border-bottom: 1px solid var(--border); font-weight: 600; background: #f9fafb; color: #374151; font-size: 0.9rem; }
+        .empty { padding: 1.5rem; text-align: center; color: #6b7280; font-size: 0.9rem; }
+
+        .notif-item { padding: 0.75rem 1rem; border-bottom: 1px solid #f3f4f6; transition: background 0.1s; }
+        .notif-item:hover { background: #f9fafb; }
+        .notif-title { font-weight: 600; font-size: 0.95rem; display: block; margin-bottom: 2px; }
+        .notif-desc { font-size: 0.85rem; color: #4b5563; display: block; margin-bottom: 4px; }
+        .notif-time { font-size: 0.75rem; color: #9ca3af; }
+
+        /* Layout */
+        .container { max-width: 800px; margin: 2rem auto; padding: 0 1rem; }
+        .card { background: #fff; border: 1px solid var(--border); border-radius: 8px; padding: 1.5rem; margin-bottom: 2rem; }
+        
+        /* Form */
+        label { display: block; margin-bottom: 0.5rem; font-weight: 600; font-size: 0.9rem; }
+        input { width: 100%; padding: 0.6rem; border: 1px solid #d1d5db; border-radius: 4px; margin-bottom: 1rem; }
+        button { background: var(--primary); color: #fff; border: none; padding: 0.7rem 1.5rem; border-radius: 4px; cursor: pointer; font-weight: 600; }
+        button:hover { opacity: 0.9; }
+
+        /* Logs */
+        .log-header { background: #f9fafb; padding: 0.75rem 1rem; border-bottom: 1px solid var(--border); font-weight: 600; display: flex; justify-content: space-between; align-items: center; border-radius: 8px 8px 0 0; border: 1px solid var(--border); border-bottom: 0; }
+        .status { width: 10px; height: 10px; background: var(--red); border-radius: 50%; }
+        .status.connected { background: #22c55e; }
+        #logs { height: 300px; overflow-y: auto; padding: 1rem; background: #fff; border: 1px solid var(--border); border-top: 1px solid #e5e7eb; border-radius: 0 0 8px 8px; font-family: monospace; font-size: 0.85rem; }
+        .log-item { margin-bottom: 0.5rem; border-bottom: 1px solid #f3f4f6; padding-bottom: 0.25rem; }
+        .type { font-weight: bold; color: #2563eb; }
+    </style>
+</head>
+<body>
+
+<nav class="navbar">
+    <div class="brand">Hub Dashboard</div>
+    <div class="notif-wrapper" id="bell">
+        <span class="bell">🔔</span>
+        <div class="badge" id="badge"></div>
+        <div class="dropdown" id="dropdown">
+            <div class="dropdown-header">Recent Notifications</div>
+            <div id="dropdown-list"><div class="empty">Loading...</div></div>
+        </div>
+    </div>
+</nav>
+
+<div class="container">
+    <div class="card">
+        <h3 style="margin-top:0">Send Notification</h3>
+        <form id="form">
+            <label>Title</label>
+            <input type="text" id="title" required placeholder="System Update">
+            <label>Description</label>
+            <input type="text" id="desc" required placeholder="Maintenance scheduled...">
+            <button type="submit">Broadcast</button>
+        </form>
+    </div>
+
+    <div>
+        <div class="log-header">
+            <span>Live Stream</span>
+            <span class="status" id="status" title="Disconnected"></span>
+        </div>
+        <div id="logs"></div>
+    </div>
+</div>
+
+<script>
+    const els = {
+        bell: document.getElementById('bell'),
+        badge: document.getElementById('badge'),
+        dropdown: document.getElementById('dropdown'),
+        list: document.getElementById('dropdown-list'),
+        logs: document.getElementById('logs'),
+        status: document.getElementById('status'),
+        form: document.getElementById('form'),
+        title: document.getElementById('title'),
+        desc: document.getElementById('desc'),
+    };
+
+    let isOpen = false;
+
+    // --- Helpers ---
+    const timeStr = (ts) => ts ? new Date(ts).toLocaleString() : new Date().toLocaleTimeString();
+    
+    const itemHTML = (n) => `
+        <div class="notif-item">
+            <span class="notif-title">${n.title || n.Title}</span>
+            <span class="notif-desc">${n.description || n.Description}</span>
+            <span class="notif-time">${timeStr(n.CreatedAt)}</span>
+        </div>`;
+
+    const logHTML = (type, msg) => `
+        <div class="log-item">
+            <span style="color:#6b7280">[${timeStr()}]</span>
+            <span class="type">[${type}]:</span> ${msg}
+        </div>`;
+
+    // --- Core Logic ---
+    async function loadHistory() {
+        try {
+            const res = await fetch('/notification');
+            const data = await res.json();
+            els.list.innerHTML = '';
+            
+            if (!data || data.length === 0) {
+                els.list.innerHTML = '<div class="empty">No notifications</div>';
+                return;
+            }
+            // Reverse to show newest first
+            data.reverse().forEach(n => els.list.innerHTML += itemHTML(n));
+        } catch (e) {
+            els.list.innerHTML = '<div class="empty">Error loading data</div>';
+        }
+    }
+
+    function handleNewNotification(n) {
+        // 1. Add to Logs
+        els.logs.innerHTML += logHTML('Notification', n.title || n.Title);
+        els.logs.scrollTop = els.logs.scrollHeight;
+
+        // 2. Add to Dropdown (Top)
+        const empty = els.list.querySelector('.empty');
+        if (empty) empty.remove();
+        
+        // Normalize fields (SSE might send lowercase json tags depending on struct)
+        const safeN = { 
+            ...n, 
+            CreatedAt: new Date().toISOString() 
+        };
+        
+        els.list.insertAdjacentHTML('afterbegin', itemHTML(safeN));
+
+        // 3. Show Badge if closed
+        if (!isOpen) els.badge.classList.add('active');
+    }
+
+    // --- Event Listeners ---
+    els.bell.addEventListener('click', (e) => {
+        e.stopPropagation();
+        isOpen = !isOpen;
+        els.dropdown.classList.toggle('show', isOpen);
+        if (isOpen) els.badge.classList.remove('active');
+    });
+
+    document.addEventListener('click', () => {
+        isOpen = false;
+        els.dropdown.classList.remove('show');
+    });
+
+    els.form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    
+    try {
+        const res = await fetch('/notification', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                title: els.title.value, 
+                description: els.desc.value
+            })
+        });
+
+        if (!res.ok) {
+            const errData = await res.json().catch(() => ({})); 
+            console.error("Server Error:", res.status, errData);
+            alert(`Error: Server returned ${res.status}`);
+        }
+
+        els.title.value = ''; 
+        els.desc.value = '';
+        
+    } catch (err) {
+        console.error("Network Error:", err);
+        alert("Network error. Please check your connection.");
+    }
+});
+
+    // --- SSE ---
+    const sse = new EventSource('/notification/stream');
+    
+    sse.onopen = () => els.status.classList.add('connected');
+    sse.onerror = () => els.status.classList.remove('connected');
+
+    sse.addEventListener('user_connected', (e) => {
+        const u = JSON.parse(e.data);
+        els.logs.innerHTML += logHTML('System', `User Connected: ${u.Id.substring(0,8)}...`);
+    });
+
+    sse.addEventListener('Notification', (e) => {
+        const data = JSON.parse(e.data);
+        handleNewNotification(data);
+    });
+
+    // Init
+    loadHistory();
+</script>
+</body>
+</html>
