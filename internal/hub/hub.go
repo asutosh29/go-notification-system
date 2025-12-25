@@ -1,14 +1,11 @@
 package hub
 
 import (
-	"encoding/json"
-	"io"
 	"log"
 	"sync"
 
 	"github.com/asutosh29/go-gin/internal/database"
 	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
 )
 
 type Hub struct {
@@ -76,41 +73,4 @@ func (h *Hub) RemoveClient(user database.User) {
 
 func (h *Hub) BroadcastNotification(notif database.Notification) {
 	h.BroadcastChannel <- notif
-}
-
-// depracated: use controller version
-func (h *Hub) StreamHandler() HandlerFunc {
-	return func(c *gin.Context) {
-		c.Writer.Header().Set("Content-Type", "text/event-stream")
-		c.Writer.Header().Set("Cache-Control", "no-cache")
-		c.Writer.Header().Set("Connection", "keep-alive")
-		c.Writer.Header().Set("Transfer-Encoding", "chunked")
-
-		user := database.User{Id: uuid.NewString()}
-		h.clients.Add(user)
-
-		defer func() {
-			h.clients.Remove(user)
-		}()
-
-		c.Stream(func(w io.Writer) bool {
-			c.SSEvent("user_connected", user)
-			select {
-			case notif, ok := <-h.BroadcastChannel:
-				if !ok {
-					return false // Channel closed
-				}
-				// Format: "event: <type>\ndata: <json>\n\n"
-				jsonNotif, err := json.Marshal(notif)
-				if err != nil {
-					log.Print("Error unmarshalling notification payload: ", err)
-				}
-
-				c.SSEvent("Notification", jsonNotif)
-				return true
-			case <-c.Request.Context().Done():
-				return false // Client disconnected
-			}
-		})
-	}
 }
