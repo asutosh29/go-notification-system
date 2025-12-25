@@ -1,6 +1,6 @@
-# Gin Server Template
+# Gin Notification Server
 
-Basic Http Server with GORM as Database ORM
+Basic Notification server using channels as message queue with GORM as Database ORM
 
 # Setup Instructions
 ## env
@@ -27,3 +27,85 @@ For prod:
 ```
 go run ./cmd/main.go
 ```
+
+# Usage
+
+## API Endpoints
+
+### Health Check
+- **GET** `/health` - Check server health status
+  ```bash
+  curl http://localhost:8080/health
+  ```
+
+### Notifications
+
+### Get All Notifications
+- **GET** `/notification` - Retrieve all notifications
+  ```bash
+  curl http://localhost:8080/notification
+  ```
+
+### Get Specific Notification
+- **GET** `/notification/:id` - Get a notification by ID
+  ```bash
+  curl http://localhost:8080/notification/{notification_id}
+  ```
+
+### Create Notification
+- **POST** `/notification` - Create a new notification
+  ```bash
+  curl -X POST http://localhost:8080/notification \
+    -H "Content-Type: application/json" \
+    -d '{
+      "title": "Notification Title",
+      "description": "Notification Description"
+    }'
+  ```
+
+### Delete Notification
+- **DELETE** `/notification/:id` - Delete a notification
+  ```bash
+  curl -X DELETE http://localhost:8080/notification/{notification_id}
+  ```
+
+### Stream Notifications (Server-Sent Events)
+- **GET** `/notification/stream` - Real-time notification stream
+  ```bash
+  curl http://localhost:8080/notification/stream
+  ```
+  This endpoint uses an internal hub/channel system to broadcast new notifications to all connected clients in real-time.
+
+### Welcome Page
+- **GET** `/` - Welcome message
+
+## Example Workflow
+
+1. Start the server (see Setup Instructions above)
+
+2. Check server health:
+   ```bash
+   curl http://localhost:8080/health
+   ```
+
+3. Create a notification:
+   ```bash
+   curl -X POST http://localhost:8080/notification \
+     -H "Content-Type: application/json" \
+     -d '{
+      "title": "Hello World",
+      "description": "This is a test notification"
+    }'
+   ```
+
+4. Get all notifications:
+   ```bash
+   curl http://localhost:8080/notification
+   ```
+
+5. Stream notifications in real-time (in one terminal):
+   ```bash
+   curl http://localhost:8080/notification/stream
+   ```
+   
+   While streaming, create notifications in another terminal to see them broadcast in real-time.
