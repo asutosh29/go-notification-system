@@ -1,0 +1,10 @@
+services:
+  db:
+    image: postgres:16
+    container_name: notification-postgres
+    environment:
+      POSTGRES_USER: amx
+      POSTGRES_PASSWORD: amx
+      POSTGRES_DB: notification
+    ports:
+      - "5432:5432"

@@ -17,7 +17,7 @@ func TestHub_Lifecycle_WithMutex(t *testing.T) {
 
 	go h.Listen()
 
-	u1 := database.User{Id: "user-1", Name: "Alice"}
+	u1 := SseClient{Id: "user-1", Name: "Alice"}
 
 	t.Log("Adding Client...")
 	h.AddClient(u1)
@@ -59,7 +59,7 @@ func TestHub_Concurrency_Safe(t *testing.T) {
 		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()
-			u := database.User{Id: fmt.Sprintf("u-%d", id)}
+			u := SseClient{Id: fmt.Sprintf("u-%d", id)}
 			h.AddClient(u)
 		}(i)
 	}
@@ -83,7 +83,7 @@ func TestHub_Broadcast_Access(t *testing.T) {
 	h := NewHub()
 	go h.Listen()
 
-	h.AddClient(database.User{Id: "reader", Name: "Reader"})
+	h.AddClient(SseClient{Id: "reader", Name: "Reader"})
 	time.Sleep(waitDuration)
 
 	// Trigger Broadcast
