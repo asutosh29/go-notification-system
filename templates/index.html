@@ -202,11 +202,11 @@
     sse.onerror = () => els.status.classList.remove('connected');
 
     sse.addEventListener('user_connected', (e) => {
-        const u = JSON.parse(e.data);
-        els.logs.innerHTML += logHTML('System', `User Connected: ${u.Id.substring(0,8)}...`);
+        const u = e.data;
+        els.logs.innerHTML += logHTML('System', `User Connected: ${u}...`);
     });
 
-    sse.addEventListener('Notification', (e) => {
+    sse.addEventListener('notification', (e) => {
         const data = JSON.parse(e.data);
         handleNewNotification(data);
     });
