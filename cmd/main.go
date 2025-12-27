@@ -24,5 +24,5 @@ func main() {
 	PORT := env.GetEnvString("SERVER_PORT", "8080")
 	router := api.InitRouter(hub)
 
-	router.Run(fmt.Sprintf("localhost:%s", PORT))
+	router.Run(fmt.Sprintf(":%s", PORT))
 }

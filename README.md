@@ -2,6 +2,12 @@
 
 Basic Notification server using channels as message queue with GORM as Database ORM
 
+# Docker
+If docker is installed
+```
+> docker compose up --build
+```
+
 # Setup Instructions
 ## env
 ```

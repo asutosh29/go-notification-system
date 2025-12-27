@@ -6,18 +6,25 @@ import (
 	"github.com/asutosh29/go-gin/internal/database"
 )
 
+type SseClient struct {
+	Id   string
+	Name string
+
+	NotifyChan chan database.Notification
+}
+
 type Clients struct {
-	data map[string]database.User
+	data map[string]SseClient
 	mu   sync.Mutex
 }
 
-func (c *Clients) Add(user database.User) {
+func (c *Clients) Add(user SseClient) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.data[user.Id] = user
 }
 
-func (c *Clients) Remove(user database.User) {
+func (c *Clients) Remove(user SseClient) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	delete(c.data, user.Id)

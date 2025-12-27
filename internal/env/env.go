@@ -1,17 +1,13 @@
 package env
 
 import (
-	"log"
 	"os"
 
 	"github.com/joho/godotenv"
 )
 
 func InitEnv() {
-	err := godotenv.Load()
-	if err != nil {
-		log.Fatal("Error loading .env file")
-	}
+	_ = godotenv.Load() // While pushing prod env is injected from docker compose!
 }
 
 func GetEnvString(key, defaultValue string) string {

@@ -7,6 +7,7 @@ import (
 	"strconv"
 
 	"github.com/asutosh29/go-gin/internal/database"
+	"github.com/asutosh29/go-gin/internal/hub"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 )
@@ -99,7 +100,10 @@ func (r *Controller) Stream(c *gin.Context) {
 	c.Writer.Header().Set("Connection", "keep-alive")
 	c.Writer.Header().Set("Transfer-Encoding", "chunked")
 
-	user := database.User{Id: uuid.NewString()}
+	user := hub.SseClient{
+		Id:         uuid.NewString(),
+		NotifyChan: make(chan database.Notification),
+	}
 	r.hub.AddClient(user)
 
 	defer func() {
@@ -109,17 +113,17 @@ func (r *Controller) Stream(c *gin.Context) {
 	welcome := false
 	c.Stream(func(w io.Writer) bool {
 		if !welcome {
-			c.SSEvent("user_connected", user)
+			c.SSEvent("user_connected", user.Id)
 			welcome = true
 			return true
 		}
 		select {
-		case notif, ok := <-r.hub.BroadcastChannel:
+		case notif, ok := <-user.NotifyChan:
 			if !ok {
 				return false // Channel closed
 			}
 			// Format: "event: <type>\ndata: <json>\n\n"
-			c.SSEvent("Notification", notif)
+			c.SSEvent("notification", notif)
 			return true
 		case <-c.Request.Context().Done():
 			return false // Client disconnected
