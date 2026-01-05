@@ -9,93 +9,180 @@ import (
 	"github.com/asutosh29/go-gin/internal/database"
 )
 
-// waitDuration gives the channels time to process messages
-const waitDuration = 50 * time.Millisecond
-
-func TestHub_Lifecycle_WithMutex(t *testing.T) {
-	h := NewHub()
-
-	go h.Listen()
-
-	u1 := SseClient{Id: "user-1", Name: "Alice"}
-
-	t.Log("Adding Client...")
-	h.AddClient(u1)
-
-	// Let the hub go routine process the query before checking
-	time.Sleep(waitDuration)
-
-	count := h.Count()
-	if count != 1 {
-		t.Errorf("Expected 1 client, got %d", count)
-	} else {
-		t.Log("PASS: Client count is 1")
-	}
-
-	t.Log("Removing Client...")
-	h.RemoveClient(u1)
-	time.Sleep(waitDuration)
-
-	count = h.Count()
-	if count != 0 {
-		t.Errorf("Expected 0 clients, got %d", count)
-	} else {
-		t.Log("PASS: Client count is 0")
+// Helper to create a dummy notification
+func mockNotification(title string) database.Notification {
+	return database.Notification{
+		Title:       title,
+		Description: "Test Description",
 	}
 }
 
-func TestHub_Concurrency_Safe(t *testing.T) {
-	t.Log("Starting Concurrency Stress Test on Clients Mutex...")
-
+// Test 1: Basic Connection and Broadcast
+// Ensures normal flow works: Join -> Listen -> Receive -> Leave
+func TestHub_BasicBroadcast(t *testing.T) {
 	h := NewHub()
 	go h.Listen()
+	defer h.Close()
+
+	// 1. Create a client
+	clientID := "client-1"
+	notifyChan := make(chan database.Notification, 5)
+	client := SseClient{
+		Id:         clientID,
+		NotifyChan: notifyChan,
+	}
+
+	// 2. Add Client
+	h.AddClient(client)
+
+	// Allow a tiny moment for the Hub goroutine to process the add
+	time.Sleep(10 * time.Millisecond)
+
+	// 3. Broadcast
+	expectedTitle := "Hello World"
+	h.BroadcastNotification(mockNotification(expectedTitle))
+
+	// 4. Verify Receipt
+	select {
+	case notif := <-notifyChan:
+		if notif.Title != expectedTitle {
+			t.Errorf("Expected title %s, got %s", expectedTitle, notif.Title)
+		}
+	case <-time.After(1 * time.Second):
+		t.Error("Timed out waiting for notification")
+	}
+
+	// 5. Remove Client
+	h.RemoveClient(client)
+}
+
+// Test 2: Slow Client / Full Buffer
+// Ensures that if one client is stuck, the Hub stays alive for others.
+func TestHub_SlowClient_DoesNotBlock(t *testing.T) {
+	h := NewHub()
+	go h.Listen()
+	defer h.Close()
+
+	// Client A: Small buffer, we will fill it up
+	clientA := SseClient{
+		Id:         "slow-client",
+		NotifyChan: make(chan database.Notification, 1), // Only holds 1
+	}
+
+	// Client B: Normal client
+	clientB := SseClient{
+		Id:         "fast-client",
+		NotifyChan: make(chan database.Notification, 5),
+	}
+
+	h.AddClient(clientA)
+	h.AddClient(clientB)
+	time.Sleep(10 * time.Millisecond)
+
+	// Fill Client A's buffer manually so it blocks
+	clientA.NotifyChan <- mockNotification("filler")
+
+	// Now Broadcast a new message
+	// If the Hub logic is wrong, this will BLOCK here waiting for Client A
+	h.BroadcastNotification(mockNotification("real-message"))
+
+	// Verify Client B still got it immediately
+	select {
+	case msg := <-clientB.NotifyChan:
+		if msg.Title != "real-message" {
+			t.Errorf("Client B got wrong message")
+		}
+	case <-time.After(100 * time.Millisecond):
+		t.Error("Hub blocked! Client B did not receive message because Client A was full.")
+	}
+}
+
+// Test 3: Double Disconnect Safety
+// Ensures calling RemoveClient twice doesn't panic
+func TestHub_DoubleDisconnect_NoPanic(t *testing.T) {
+	h := NewHub()
+	go h.Listen()
+	defer h.Close()
+
+	client := SseClient{
+		Id:         "panic-test-user",
+		NotifyChan: make(chan database.Notification, 1),
+	}
+
+	h.AddClient(client)
+	time.Sleep(10 * time.Millisecond)
+
+	// First disconnect (Normal)
+	h.RemoveClient(client)
+
+	// Wait for processing
+	time.Sleep(10 * time.Millisecond)
+
+	// Second disconnect (Should be ignored safely)
+	// If logic is bad, this will panic: "close of closed channel"
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				t.Errorf("Code panicked on double disconnect: %v", r)
+			}
+		}()
+		h.RemoveClient(client)
+	}()
+
+	// Ensure Hub is still alive by trying to broadcast
+	h.BroadcastNotification(mockNotification("check-alive"))
+}
+
+// Test 4: Heavy Concurrency (Race Detector)
+// Simulates many users joining/leaving/broadcasting simultaneously
+func TestHub_ConcurrencyLoad(t *testing.T) {
+	h := NewHub()
+	go h.Listen()
+	defer h.Close()
 
 	var wg sync.WaitGroup
-	workers := 50
+	userCount := 100
 
-	// Concurrent Adds
-	// Launch 50 goroutines. Each adds a user.
-	for i := 0; i < workers; i++ {
+	// Spawn 100 users connecting and disconnecting
+	for i := 0; i < userCount; i++ {
 		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()
-			u := SseClient{Id: fmt.Sprintf("u-%d", id)}
-			h.AddClient(u)
+			c := SseClient{
+				Id:         fmt.Sprintf("user-%d", id),
+				NotifyChan: make(chan database.Notification, 10),
+			}
+
+			h.AddClient(c)
+
+			// Random small sleep to simulate connection time
+			time.Sleep(time.Millisecond * 5)
+
+			h.RemoveClient(c)
 		}(i)
 	}
 
-	wg.Wait()
+	// Spawn a broadcaster running in parallel
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 50; i++ {
+			h.BroadcastNotification(mockNotification(fmt.Sprintf("msg-%d", i)))
+			time.Sleep(time.Millisecond * 2)
+		}
+	}()
 
-	// Wait for Hub to process the channel buffer
-	time.Sleep(200 * time.Millisecond)
+	// Wait for everyone to finish
+	done := make(chan bool)
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
 
-	// Verify Count
-	// If Mutex logic in Clients struct is wrong, this might be incorrect.
-	finalCount := h.Count()
-	if finalCount != workers {
-		t.Errorf("Expected %d clients, got %d. (Is the channel blocked?)", workers, finalCount)
-	} else {
-		t.Logf("PASS: Successfully handled %d concurrent additions", finalCount)
+	select {
+	case <-done:
+		// Success
+	case <-time.After(3 * time.Second):
+		t.Error("Test timed out - likely a Deadlock occurred")
 	}
-}
-
-func TestHub_Broadcast_Access(t *testing.T) {
-	h := NewHub()
-	go h.Listen()
-
-	h.AddClient(SseClient{Id: "reader", Name: "Reader"})
-	time.Sleep(waitDuration)
-
-	// Trigger Broadcast
-	// This tests that the range loop in Listen()
-	//: "for _, client := range h.clients.Clients().data"
-	// doesn't panic.
-	t.Log("Sending broadcast...")
-	h.BroadcastNotification(database.Notification{
-		Title:       "Test",
-		Description: "Hello",
-	})
-
-	time.Sleep(waitDuration)
-	t.Log("PASS: Broadcast finished without panic")
 }
