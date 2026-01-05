@@ -102,9 +102,10 @@ func (r *Controller) Stream(c *gin.Context) {
 
 	user := hub.SseClient{
 		Id:         uuid.NewString(),
-		NotifyChan: make(chan database.Notification),
+		NotifyChan: make(chan database.Notification, 20),
 	}
 	r.hub.AddClient(user)
+	log.Print("adding id: ", user.Id)
 
 	defer func() {
 		r.hub.RemoveClient(user)

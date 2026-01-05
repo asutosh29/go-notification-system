@@ -18,23 +18,17 @@ type Clients struct {
 	mu   sync.Mutex
 }
 
-func (c *Clients) Add(user SseClient) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.data[user.Id] = user
+func (h *Hub) Add(user SseClient) {
+	h.data[user.Id] = user
 }
 
-func (c *Clients) Remove(user SseClient) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	delete(c.data, user.Id)
+func (h *Hub) Remove(user SseClient) {
+	delete(h.data, user.Id)
 }
-func (c *Clients) Count() int {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return len(c.data)
+func (h *Hub) Count() int {
+	return len(h.data)
 }
 
-func (c *Clients) Clients() *Clients {
-	return c
+func (h *Hub) Clients() *Hub {
+	return h
 }

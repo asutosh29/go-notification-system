@@ -25,7 +25,7 @@ func TestHub_Lifecycle_WithMutex(t *testing.T) {
 	// Let the hub go routine process the query before checking
 	time.Sleep(waitDuration)
 
-	count := h.clients.Count()
+	count := h.Count()
 	if count != 1 {
 		t.Errorf("Expected 1 client, got %d", count)
 	} else {
@@ -36,7 +36,7 @@ func TestHub_Lifecycle_WithMutex(t *testing.T) {
 	h.RemoveClient(u1)
 	time.Sleep(waitDuration)
 
-	count = h.clients.Count()
+	count = h.Count()
 	if count != 0 {
 		t.Errorf("Expected 0 clients, got %d", count)
 	} else {
@@ -71,7 +71,7 @@ func TestHub_Concurrency_Safe(t *testing.T) {
 
 	// Verify Count
 	// If Mutex logic in Clients struct is wrong, this might be incorrect.
-	finalCount := h.clients.Count()
+	finalCount := h.Count()
 	if finalCount != workers {
 		t.Errorf("Expected %d clients, got %d. (Is the channel blocked?)", workers, finalCount)
 	} else {

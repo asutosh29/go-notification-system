@@ -9,7 +9,7 @@ import (
 )
 
 type Hub struct {
-	clients          Clients
+	data             map[string]SseClient
 	mu               sync.Mutex
 	connect          chan SseClient
 	disconnect       chan SseClient
@@ -20,14 +20,11 @@ type HandlerFunc func(*gin.Context)
 
 func NewHub() *Hub {
 	return &Hub{
-		mu: sync.Mutex{},
-		clients: Clients{
-			data: make(map[string]SseClient),
-			mu:   sync.Mutex{},
-		},
-		connect:          make(chan SseClient), // TODO: Make them Buffered to avoid blocking due to bad internet speed
-		disconnect:       make(chan SseClient),
-		BroadcastChannel: make(chan database.Notification),
+		mu:               sync.Mutex{},
+		data:             make(map[string]SseClient),
+		connect:          make(chan SseClient, 50), // TODO: Make them Buffered to avoid blocking due to bad internet speed
+		disconnect:       make(chan SseClient, 50),
+		BroadcastChannel: make(chan database.Notification, 100),
 	}
 }
 
@@ -35,26 +32,26 @@ func (h *Hub) Listen() {
 	for {
 		select {
 		case user := <-h.connect:
-			h.mu.Lock()
-			h.clients.Add(user)
+			h.Add(user)
 			log.Print("New client connected: ", user.Id)
-			log.Print("Num client: ", h.clients.Count())
-			h.mu.Unlock()
+			log.Print("Num client: ", h.Count())
 		case user := <-h.disconnect:
-			h.mu.Lock()
 			close(user.NotifyChan)
-			h.clients.Remove(user)
+			h.Remove(user)
 			log.Print("Client disconnected: ", user.Id)
-			log.Print("Num client: ", h.clients.Count())
-			h.mu.Unlock()
+			log.Print("Num client: ", h.Count())
 		case notif := <-h.BroadcastChannel:
-			h.mu.Lock()
 			log.Print("Broadcasting notification: ", notif)
-			for _, client := range h.clients.Clients().data {
-				client.NotifyChan <- notif
-				log.Print("Notification sent to ", client.Id)
+			for _, client := range h.Clients().data {
+				log.Printf("client %+v", client)
+				select {
+				case client.NotifyChan <- notif:
+					log.Print("Notification sent to ", client.Id)
+				default:
+					log.Printf("Skipping client %s (buffer full)", client.Id)
+				}
+
 			}
-			h.mu.Unlock()
 			// send notifications
 		}
 	}
@@ -77,4 +74,19 @@ func (h *Hub) RemoveClient(user SseClient) {
 
 func (h *Hub) BroadcastNotification(notif database.Notification) {
 	h.BroadcastChannel <- notif
+}
+
+func (h *Hub) Add(user SseClient) {
+	h.data[user.Id] = user
+}
+
+func (h *Hub) Remove(user SseClient) {
+	delete(h.data, user.Id)
+}
+func (h *Hub) Count() int {
+	return len(h.data)
+}
+
+func (h *Hub) Clients() *Hub {
+	return h
 }
