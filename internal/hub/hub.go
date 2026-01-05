@@ -15,6 +15,8 @@ type Hub struct {
 
 	quit chan struct{}
 	wg   sync.WaitGroup
+
+	once sync.Once // only for safe closure
 }
 
 func NewHub() *Hub {
@@ -40,14 +42,7 @@ func (h *Hub) Listen() {
 
 	for {
 		select {
-		case <-h.quit:
-			log.Println("Hub shutting down...")
 
-			for _, client := range h.data {
-				close(client.NotifyChan)
-			}
-			log.Println("Hub shutdown complete. All clients disconnected.")
-			return
 		case user, ok := <-h.connect:
 			if !ok {
 				return
@@ -81,26 +76,44 @@ func (h *Hub) Listen() {
 				}
 
 			}
+		case <-h.quit:
+			log.Println("Hub shutting down...")
+
+			for _, client := range h.data {
+				close(client.NotifyChan)
+			}
+			log.Println("Hub shutdown complete. All clients disconnected.")
+			return
 		}
 	}
 }
 
 func (h *Hub) close() {
-	close(h.quit) // send the signal <-h.quit in the select statement
-
-	h.wg.Wait()
+	h.once.Do(func() {
+		close(h.quit) // send the signal <-h.quit in the select statement
+		h.wg.Wait()
+	})
 }
 
 func (h *Hub) AddClient(user *SseClient) {
-	h.connect <- user
+	select {
+	case h.connect <- user:
+	case <-h.quit:
+	}
 }
 
 func (h *Hub) RemoveClient(user *SseClient) {
-	h.disconnect <- user
+	select {
+	case h.disconnect <- user:
+	case <-h.quit:
+	}
 }
 
 func (h *Hub) BroadcastNotification(notif database.Notification) {
-	h.BroadcastChannel <- notif
+	select {
+	case h.BroadcastChannel <- notif:
+	case <-h.quit:
+	}
 }
 
 func (h *Hub) add(user *SseClient) {

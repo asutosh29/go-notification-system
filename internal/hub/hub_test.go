@@ -216,3 +216,168 @@ func TestHub_GracefulShutdown(t *testing.T) {
 		t.Error("Client channel was NOT closed during shutdown (Memory Leak)")
 	}
 }
+
+// --- TEST FOR ISSUE 1: Data Race Safety ---
+// This requires running with `go test -race`
+// It creates heavy load on the public API methods (AddClient, RemoveClient, Broadcast)
+// to ensure the internal map is not accessed unsafely.
+func TestHub_ConcurrencySafety(t *testing.T) {
+	h := NewHub()
+	go h.Listen()
+	defer h.close() // Ensure cleanup
+
+	var wg sync.WaitGroup
+	workers := 50
+
+	// 1. Concurrent Adders and Removers
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			client := SseClient{
+				Id:         fmt.Sprintf("user-%d", id),
+				NotifyChan: make(chan database.Notification, 1),
+			}
+
+			// Rapidly add and remove
+			h.AddClient(&client)
+			time.Sleep(time.Millisecond) // Slight jitter
+			h.RemoveClient(&client)
+		}(i)
+	}
+
+	// 2. Concurrent Broadcaster
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 20; i++ {
+			h.BroadcastNotification(mockNotification("stress-test"))
+			time.Sleep(2 * time.Millisecond)
+		}
+	}()
+
+	// Wait for all to finish
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		// Success: No deadlocks, race detector should be happy
+	case <-time.After(5 * time.Second):
+		t.Fatal("Test timed out! Possible deadlock or race condition.")
+	}
+}
+
+// --- TEST FOR ISSUE 2: Double Close Panic ---
+// This verifies that calling Close() multiple times is safe (Idempotency).
+func TestHub_IdempotentClose(t *testing.T) {
+	h := NewHub()
+	go h.Listen()
+
+	// 1. First Close (Normal)
+	h.close()
+
+	// 2. Second close (Should not panic)
+	defer func() {
+		if r := recover(); r != nil {
+			t.Errorf("Panicked on double close: %v", r)
+		}
+	}()
+	h.close()
+}
+
+// --- TEST FOR ISSUE 3: Blocking on Shutdown ---
+// WARN: Since you skipped the fix for Issue 3, THIS TEST WILL FAIL.
+// It tries to add a client after the hub is closed.
+// Without the fix, AddClient blocks forever trying to write to h.connect.
+func TestHub_AddClient_AfterShutdown(t *testing.T) {
+	h := NewHub()
+	go h.Listen()
+
+	// 1. Close the Hub immediately
+	h.close()
+
+	// 2. Try to add a client to a closed Hub
+	done := make(chan struct{})
+
+	go func() {
+		client := SseClient{
+			Id:         "late-comer",
+			NotifyChan: make(chan database.Notification),
+		}
+		// If Issue 3 is NOT fixed, this line blocks forever
+		h.AddClient(&client)
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		// Success: AddClient returned (either success or ignored)
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("FAIL: AddClient blocked forever after Hub shutdown! (Issue 3 is present)")
+	}
+}
+
+func TestHub_AddClient_AfterShutdown_BufferOverflow(t *testing.T) {
+	h := NewHub()
+	go h.Listen()
+
+	// 1. Close the Hub immediately
+	h.close()
+
+	// 2. Try to overflow the buffer after shutdown
+	done := make(chan struct{})
+
+	go func() {
+		// Try to add more clients than the buffer size (assuming buffer is 100)
+		// The first 100 will succeed (sitting in buffer), the 101st should BLOCK forever
+		// unless you have the select/case fix.
+		for i := 0; i < 150; i++ {
+			client := SseClient{
+				Id:         fmt.Sprintf("late-%d", i),
+				NotifyChan: make(chan database.Notification),
+			}
+			h.AddClient(&client)
+		}
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		// Success: All AddClient calls returned (either buffered or dropped)
+	case <-time.After(3000 * time.Millisecond):
+		t.Fatal("FAIL: AddClient blocked when buffer filled up after shutdown!")
+	}
+}
+
+// --- General Functional Test ---
+func TestHub_FunctionalFlow(t *testing.T) {
+	h := NewHub()
+	go h.Listen()
+	defer h.close()
+
+	client := SseClient{
+		Id:         "func-test",
+		NotifyChan: make(chan database.Notification, 5),
+	}
+
+	h.AddClient(&client)
+
+	// Wait a tiny bit for the goroutine to process the add
+	time.Sleep(10 * time.Millisecond)
+
+	msg := mockNotification("hello")
+	h.BroadcastNotification(msg)
+
+	select {
+	case received := <-client.NotifyChan:
+		if received.Title != msg.Title {
+			t.Errorf("Expected %s, got %s", msg.Title, received.Title)
+		}
+	case <-time.After(1 * time.Second):
+		t.Error("Did not receive notification")
+	}
+}
