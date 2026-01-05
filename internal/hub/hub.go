@@ -5,26 +5,23 @@ import (
 	"sync"
 
 	"github.com/asutosh29/go-gin/internal/database"
-	"github.com/gin-gonic/gin"
 )
 
 type Hub struct {
-	data             map[string]SseClient
-	connect          chan SseClient
-	disconnect       chan SseClient
+	data             map[string]*SseClient
+	connect          chan *SseClient
+	disconnect       chan *SseClient
 	BroadcastChannel chan database.Notification
 
 	quit chan struct{}
 	wg   sync.WaitGroup
 }
 
-type HandlerFunc func(*gin.Context)
-
 func NewHub() *Hub {
 	h := &Hub{
-		data:             make(map[string]SseClient),
-		connect:          make(chan SseClient, 50), // TODO: Make them Buffered to avoid blocking due to bad internet speed
-		disconnect:       make(chan SseClient, 50),
+		data:             make(map[string]*SseClient),
+		connect:          make(chan *SseClient, 100),
+		disconnect:       make(chan *SseClient, 100),
 		BroadcastChannel: make(chan database.Notification, 100),
 
 		quit: make(chan struct{}),
@@ -55,18 +52,19 @@ func (h *Hub) Listen() {
 			if !ok {
 				return
 			}
-			h.Add(user)
+			h.add(user)
 			log.Print("New client connected: ", user.Id)
-			log.Print("Num client: ", h.Count())
+			log.Print("Num client: ", h.count())
 		case user, ok := <-h.disconnect:
 			if !ok {
 				return
 			}
+			log.Print("user being disconnected: ", user)
 			if client, exists := h.data[user.Id]; exists {
 				close(client.NotifyChan)
-				delete(h.data, user.Id)
+				h.remove(user)
 				log.Print("Client disconnected: ", user.Id)
-				log.Print("Num client: ", h.Count())
+				log.Print("Num client: ", h.count())
 			}
 		case notif, ok := <-h.BroadcastChannel:
 			if !ok {
@@ -87,17 +85,17 @@ func (h *Hub) Listen() {
 	}
 }
 
-func (h *Hub) Close() {
+func (h *Hub) close() {
 	close(h.quit) // send the signal <-h.quit in the select statement
 
 	h.wg.Wait()
 }
 
-func (h *Hub) AddClient(user SseClient) {
+func (h *Hub) AddClient(user *SseClient) {
 	h.connect <- user
 }
 
-func (h *Hub) RemoveClient(user SseClient) {
+func (h *Hub) RemoveClient(user *SseClient) {
 	h.disconnect <- user
 }
 
@@ -105,13 +103,13 @@ func (h *Hub) BroadcastNotification(notif database.Notification) {
 	h.BroadcastChannel <- notif
 }
 
-func (h *Hub) Add(user SseClient) {
+func (h *Hub) add(user *SseClient) {
 	h.data[user.Id] = user
 }
 
-func (h *Hub) Remove(user SseClient) {
+func (h *Hub) remove(user *SseClient) {
 	delete(h.data, user.Id)
 }
-func (h *Hub) Count() int {
+func (h *Hub) count() int {
 	return len(h.data)
 }

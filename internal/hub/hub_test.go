@@ -22,7 +22,7 @@ func mockNotification(title string) database.Notification {
 func TestHub_BasicBroadcast(t *testing.T) {
 	h := NewHub()
 	go h.Listen()
-	defer h.Close()
+	defer h.close()
 
 	// 1. Create a client
 	clientID := "client-1"
@@ -33,7 +33,7 @@ func TestHub_BasicBroadcast(t *testing.T) {
 	}
 
 	// 2. Add Client
-	h.AddClient(client)
+	h.AddClient(&client)
 
 	// Allow a tiny moment for the Hub goroutine to process the add
 	time.Sleep(10 * time.Millisecond)
@@ -53,7 +53,7 @@ func TestHub_BasicBroadcast(t *testing.T) {
 	}
 
 	// 5. Remove Client
-	h.RemoveClient(client)
+	h.RemoveClient(&client)
 }
 
 // Test 2: Slow Client / Full Buffer
@@ -61,7 +61,7 @@ func TestHub_BasicBroadcast(t *testing.T) {
 func TestHub_SlowClient_DoesNotBlock(t *testing.T) {
 	h := NewHub()
 	go h.Listen()
-	defer h.Close()
+	defer h.close()
 
 	// Client A: Small buffer, we will fill it up
 	clientA := SseClient{
@@ -75,8 +75,8 @@ func TestHub_SlowClient_DoesNotBlock(t *testing.T) {
 		NotifyChan: make(chan database.Notification, 5),
 	}
 
-	h.AddClient(clientA)
-	h.AddClient(clientB)
+	h.AddClient(&clientA)
+	h.AddClient(&clientB)
 	time.Sleep(10 * time.Millisecond)
 
 	// Fill Client A's buffer manually so it blocks
@@ -102,18 +102,18 @@ func TestHub_SlowClient_DoesNotBlock(t *testing.T) {
 func TestHub_DoubleDisconnect_NoPanic(t *testing.T) {
 	h := NewHub()
 	go h.Listen()
-	defer h.Close()
+	defer h.close()
 
 	client := SseClient{
 		Id:         "panic-test-user",
 		NotifyChan: make(chan database.Notification, 1),
 	}
 
-	h.AddClient(client)
+	h.AddClient(&client)
 	time.Sleep(10 * time.Millisecond)
 
 	// First disconnect (Normal)
-	h.RemoveClient(client)
+	h.RemoveClient(&client)
 
 	// Wait for processing
 	time.Sleep(10 * time.Millisecond)
@@ -126,7 +126,7 @@ func TestHub_DoubleDisconnect_NoPanic(t *testing.T) {
 				t.Errorf("Code panicked on double disconnect: %v", r)
 			}
 		}()
-		h.RemoveClient(client)
+		h.RemoveClient(&client)
 	}()
 
 	// Ensure Hub is still alive by trying to broadcast
@@ -138,7 +138,7 @@ func TestHub_DoubleDisconnect_NoPanic(t *testing.T) {
 func TestHub_ConcurrencyLoad(t *testing.T) {
 	h := NewHub()
 	go h.Listen()
-	defer h.Close()
+	defer h.close()
 
 	var wg sync.WaitGroup
 	userCount := 100
@@ -153,12 +153,12 @@ func TestHub_ConcurrencyLoad(t *testing.T) {
 				NotifyChan: make(chan database.Notification, 10),
 			}
 
-			h.AddClient(c)
+			h.AddClient(&c)
 
 			// Random small sleep to simulate connection time
 			time.Sleep(time.Millisecond * 5)
 
-			h.RemoveClient(c)
+			h.RemoveClient(&c)
 		}(i)
 	}
 
@@ -196,14 +196,14 @@ func TestHub_GracefulShutdown(t *testing.T) {
 		Id:         "stuck-client",
 		NotifyChan: make(chan database.Notification, 1),
 	}
-	h.AddClient(client)
+	h.AddClient(&client)
 
 	// Wait for add
 	time.Sleep(10 * time.Millisecond)
 
 	// 2. Close the Hub
 	// This should block until the client's channel is closed
-	h.Close()
+	h.close()
 
 	// 3. Verify the client was released
 	select {

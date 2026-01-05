@@ -104,11 +104,11 @@ func (r *Controller) Stream(c *gin.Context) {
 		Id:         uuid.NewString(),
 		NotifyChan: make(chan database.Notification, 20),
 	}
-	r.hub.AddClient(user)
+	r.hub.AddClient(&user)
 	log.Print("adding id: ", user.Id)
 
 	defer func() {
-		r.hub.RemoveClient(user)
+		r.hub.RemoveClient(&user)
 	}()
 
 	welcome := false
