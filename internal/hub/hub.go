@@ -14,7 +14,7 @@ type Hub struct {
 	BroadcastChannel chan database.Notification
 
 	quit chan struct{}
-	wg   sync.WaitGroup
+	done chan struct{}
 
 	once sync.Once // only for safe closure
 }
@@ -27,16 +27,15 @@ func NewHub() *Hub {
 		BroadcastChannel: make(chan database.Notification, 100),
 
 		quit: make(chan struct{}),
-		wg:   sync.WaitGroup{},
+		done: make(chan struct{}), // Initialize the channel
 	}
-	h.wg.Add(1)
 	return h
 
 }
 
 func (h *Hub) Listen() {
 
-	defer h.wg.Done()
+	defer close(h.done)
 
 	log.Println("Hub started listening...")
 
@@ -91,7 +90,7 @@ func (h *Hub) Listen() {
 func (h *Hub) close() {
 	h.once.Do(func() {
 		close(h.quit) // send the signal <-h.quit in the select statement
-		h.wg.Wait()
+		<-h.done
 	})
 }
 
