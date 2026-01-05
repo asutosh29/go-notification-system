@@ -381,3 +381,113 @@ func TestHub_FunctionalFlow(t *testing.T) {
 		t.Error("Did not receive notification")
 	}
 }
+
+func TestHub_BadNeighborIsolation(t *testing.T) {
+	h := NewHub()
+	go h.Listen()
+	defer h.close()
+
+	// 1. Setup a "Good" client (Large buffer)
+	goodClient := SseClient{Id: "good", NotifyChan: make(chan database.Notification, 10)}
+	h.AddClient(&goodClient)
+
+	// 2. Setup a "Bad" client (Tiny buffer, deliberately blocked)
+	badClient := SseClient{Id: "bad", NotifyChan: make(chan database.Notification, 0)} // Unbuffered!
+	h.AddClient(&badClient)
+
+	time.Sleep(10 * time.Millisecond) // Wait for joins
+
+	// 3. Broadcast.
+	// The "bad" client cannot receive this (no buffer, no reader).
+	// The Hub MUST skip the bad client and deliver to the good client immediately.
+	msg := mockNotification("urgent-update")
+	h.BroadcastNotification(msg)
+
+	// 4. Verify Good Client received it
+	select {
+	case <-goodClient.NotifyChan:
+		// Success
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("The Hub blocked! The 'Bad Neighbor' prevented the 'Good Client' from receiving data.")
+	}
+}
+
+func TestHub_MessageOrdering(t *testing.T) {
+	h := NewHub()
+	go h.Listen()
+	defer h.close()
+
+	client := SseClient{Id: "order-test", NotifyChan: make(chan database.Notification, 10)}
+	h.AddClient(&client)
+	time.Sleep(10 * time.Millisecond)
+
+	// Send 1, 2, 3
+	for i := 1; i <= 3; i++ {
+		h.BroadcastNotification(mockNotification(fmt.Sprintf("msg-%d", i)))
+	}
+
+	// Verify 1, 2, 3
+	for i := 1; i <= 3; i++ {
+		select {
+		case msg := <-client.NotifyChan:
+			expected := fmt.Sprintf("msg-%d", i)
+			if msg.Title != expected {
+				t.Errorf("Order mismatch. Expected %s, got %s", expected, msg.Title)
+			}
+		case <-time.After(100 * time.Millisecond):
+			t.Fatalf("Timeout waiting for message %d", i)
+		}
+	}
+}
+
+func TestHub_BroadcastToEmpty(t *testing.T) {
+	h := NewHub()
+	go h.Listen()
+	defer h.close()
+
+	// Should not panic
+	h.BroadcastNotification(mockNotification("void"))
+
+	// Add client AFTER broadcast
+	client := SseClient{Id: "late", NotifyChan: make(chan database.Notification, 1)}
+	h.AddClient(&client)
+
+	select {
+	case <-client.NotifyChan:
+		t.Error("Client received message sent BEFORE they joined")
+	default:
+		// Success
+	}
+}
+
+func TestHub_StressLifecycle(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping stress test in short mode")
+	}
+
+	h := NewHub()
+	go h.Listen()
+	defer h.close()
+
+	var wg sync.WaitGroup
+
+	// 500 Goroutines trying to join and leave instantly
+	for i := 0; i < 500; i++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			c := SseClient{Id: fmt.Sprintf("stress-%d", id), NotifyChan: make(chan database.Notification, 1)}
+			h.AddClient(&c)
+			h.RemoveClient(&c)
+		}(i)
+	}
+
+	wg.Wait()
+
+	// Allow channel processing time
+	time.Sleep(50 * time.Millisecond)
+
+	// Using the internal helper via a safe method (if you kept the test inside the package)
+	// Or just rely on the fact that no panic occurred.
+	// Ideally, count should be 0.
+}
