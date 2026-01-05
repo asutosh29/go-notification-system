@@ -5,76 +5,123 @@ import (
 	"sync"
 
 	"github.com/asutosh29/go-gin/internal/database"
-	"github.com/gin-gonic/gin"
 )
 
 type Hub struct {
-	clients          Clients
-	mu               sync.Mutex
-	connect          chan SseClient
-	disconnect       chan SseClient
+	data             map[string]*SseClient
+	connect          chan *SseClient
+	disconnect       chan *SseClient
 	BroadcastChannel chan database.Notification
+
+	quit chan struct{}
+	done chan struct{}
+
+	once sync.Once // only for safe closure
 }
 
-type HandlerFunc func(*gin.Context)
-
 func NewHub() *Hub {
-	return &Hub{
-		mu: sync.Mutex{},
-		clients: Clients{
-			data: make(map[string]SseClient),
-			mu:   sync.Mutex{},
-		},
-		connect:          make(chan SseClient), // TODO: Make them Buffered to avoid blocking due to bad internet speed
-		disconnect:       make(chan SseClient),
-		BroadcastChannel: make(chan database.Notification),
+	h := &Hub{
+		data:             make(map[string]*SseClient),
+		connect:          make(chan *SseClient, 100),
+		disconnect:       make(chan *SseClient, 100),
+		BroadcastChannel: make(chan database.Notification, 100),
+
+		quit: make(chan struct{}),
+		done: make(chan struct{}), // Initialize the channel
 	}
+	return h
+
 }
 
 func (h *Hub) Listen() {
+
+	defer close(h.done)
+
+	log.Println("Hub started listening...")
+
 	for {
 		select {
-		case user := <-h.connect:
-			h.mu.Lock()
-			h.clients.Add(user)
-			log.Print("New client connected: ", user.Id)
-			log.Print("Num client: ", h.clients.Count())
-			h.mu.Unlock()
-		case user := <-h.disconnect:
-			h.mu.Lock()
-			close(user.NotifyChan)
-			h.clients.Remove(user)
-			log.Print("Client disconnected: ", user.Id)
-			log.Print("Num client: ", h.clients.Count())
-			h.mu.Unlock()
-		case notif := <-h.BroadcastChannel:
-			h.mu.Lock()
-			log.Print("Broadcasting notification: ", notif)
-			for _, client := range h.clients.Clients().data {
-				client.NotifyChan <- notif
-				log.Print("Notification sent to ", client.Id)
+
+		case user, ok := <-h.connect:
+			if !ok {
+				return
 			}
-			h.mu.Unlock()
-			// send notifications
+			h.add(user)
+			log.Print("New client connected: ", user.Id)
+			log.Print("Num client: ", h.count())
+		case user, ok := <-h.disconnect:
+			if !ok {
+				return
+			}
+			log.Print("user being disconnected: ", user)
+			if client, exists := h.data[user.Id]; exists {
+				close(client.NotifyChan)
+				h.remove(user)
+				log.Print("Client disconnected: ", user.Id)
+				log.Print("Num client: ", h.count())
+			}
+		case notif, ok := <-h.BroadcastChannel:
+			if !ok {
+				return
+			}
+			log.Print("Broadcasting notification: ", notif)
+			for _, client := range h.data {
+				log.Printf("client %+v", client)
+				select {
+				case client.NotifyChan <- notif:
+					log.Print("Notification sent to ", client.Id)
+				default:
+					log.Printf("Skipping client %s (buffer full)", client.Id)
+				}
+
+			}
+		case <-h.quit:
+			log.Println("Hub shutting down...")
+
+			for _, client := range h.data {
+				close(client.NotifyChan)
+			}
+			log.Println("Hub shutdown complete. All clients disconnected.")
+			return
 		}
 	}
 }
 
-func (h *Hub) Close() {
-	close(h.connect)
-	close(h.disconnect)
-	close(h.BroadcastChannel)
+func (h *Hub) close() {
+	h.once.Do(func() {
+		close(h.quit) // send the signal <-h.quit in the select statement
+		<-h.done
+	})
 }
 
-func (h *Hub) AddClient(user SseClient) {
-	h.connect <- user
+func (h *Hub) AddClient(user *SseClient) {
+	select {
+	case h.connect <- user:
+	case <-h.quit:
+	}
 }
 
-func (h *Hub) RemoveClient(user SseClient) {
-	h.disconnect <- user
-	// handle connection cleanup in the main loop
+func (h *Hub) RemoveClient(user *SseClient) {
+	select {
+	case h.disconnect <- user:
+	case <-h.quit:
+	}
 }
 
 func (h *Hub) BroadcastNotification(notif database.Notification) {
-	h.BroadcastChannel <- notif
+	select {
+	case h.BroadcastChannel <- notif:
+	case <-h.quit:
+	}
+}
+
+func (h *Hub) add(user *SseClient) {
+	h.data[user.Id] = user
+}
+
+func (h *Hub) remove(user *SseClient) {
+	delete(h.data, user.Id)
+}
+func (h *Hub) count() int {
+	return len(h.data)
 }
