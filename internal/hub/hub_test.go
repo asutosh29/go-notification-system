@@ -186,3 +186,33 @@ func TestHub_ConcurrencyLoad(t *testing.T) {
 		t.Error("Test timed out - likely a Deadlock occurred")
 	}
 }
+
+func TestHub_GracefulShutdown(t *testing.T) {
+	h := NewHub()
+	go h.Listen()
+
+	// 1. Connect a client
+	client := SseClient{
+		Id:         "stuck-client",
+		NotifyChan: make(chan database.Notification, 1),
+	}
+	h.AddClient(client)
+
+	// Wait for add
+	time.Sleep(10 * time.Millisecond)
+
+	// 2. Close the Hub
+	// This should block until the client's channel is closed
+	h.Close()
+
+	// 3. Verify the client was released
+	select {
+	case _, ok := <-client.NotifyChan:
+		if ok {
+			t.Error("Client channel received data instead of closing")
+		}
+		// Success: channel is closed (ok is false)
+	case <-time.After(100 * time.Millisecond):
+		t.Error("Client channel was NOT closed during shutdown (Memory Leak)")
+	}
+}
